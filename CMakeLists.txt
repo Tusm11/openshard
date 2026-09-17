@@ -59,7 +59,7 @@ endif()
 # Phase 4: Gateway
 add_library(openshard_gateway src/gateway/gateway.cpp)
 target_include_directories(openshard_gateway PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(openshard_gateway PUBLIC retrieval_engine httplib::httplib)
+target_link_libraries(openshard_gateway PUBLIC retrieval_engine httplib::httplib openshard_cache)
 
 # Phase 5: Batch Retrieval
 add_library(batch_retriever src/retrieval/batch_retriever.cpp)
@@ -72,8 +72,14 @@ target_include_directories(retrieval_planner PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/
 target_link_libraries(retrieval_planner PUBLIC openshard_index)
 
 # Phase 7: Caching
-add_library(openshard_cache src/storage/cache.cpp)
+add_library(openshard_cache src/storage/cache.cpp src/storage/range_retriever.cpp)
 target_include_directories(openshard_cache PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(CURL_FOUND)
+  target_compile_definitions(openshard_cache PRIVATE HAVE_CURL)
+  target_link_libraries(openshard_cache PUBLIC CURL::libcurl)
+else()
+  message(STATUS "CURL not found - RangeRetriever will be stub-only")
+endif()
 
 # Phase 8: Concurrency
 # add_library(thread_pool src/concurrency/thread_pool.cpp)

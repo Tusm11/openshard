@@ -12,9 +12,22 @@ namespace openshard {
 namespace gateway {
 
 struct DatasetConfig {
+  // Dataset identification
   std::string name;
+  
+  // Local archive (for local/testing)
   std::string archive_dir;
+  
+  // Remote archive (provider-neutral)
+  std::string archive_url;        // e.g., https://example.com or s3://bucket
+  std::string archive_object;     // e.g., /path/to/data.tar
+  
+  // Index
   std::shared_ptr<index::Index> index;
+  
+  // Helpers
+  bool IsLocal() const { return !archive_dir.empty(); }
+  bool IsRemote() const { return !archive_url.empty(); }
 };
 
 struct FileResponse {

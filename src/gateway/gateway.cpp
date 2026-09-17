@@ -1,8 +1,7 @@
 #include "gateway/gateway.h"
+#include "httplib.h"
 #include <iostream>
-#include <functional>
-#include <vector>
-#include <map>
+#include <algorithm>
 
 namespace openshard {
 namespace gateway {
@@ -10,22 +9,55 @@ namespace gateway {
 class HttpServer {
  public:
   HttpServer(int port) : port_(port) {}
-  
-  void SetHandler(const std::string& path, 
-                  const std::function<std::string(const std::string&)>& handler) {
-    handlers_[path] = handler;
+
+  bool Listen() {
+    return server_.listen("0.0.0.0", port_);
   }
 
-  bool Listen() { return true; }
-  void Stop() {}
+  void Stop() {
+    server_.stop();
+  }
+
+  httplib::Server& GetServer() {
+    return server_;
+  }
 
  private:
   int port_;
-  std::map<std::string, std::function<std::string(const std::string&)>> handlers_;
+  httplib::Server server_;
 };
 
 HttpGateway::HttpGateway(int port) : port_(port), running_(false) {
   server_ = std::make_unique<HttpServer>(port);
+  
+  // Register /health endpoint
+  server_->GetServer().Get("/health", [](const httplib::Request&, httplib::Response& res) {
+    res.set_content("{\"status\":\"ok\"}", "application/json");
+    res.status = 200;
+  });
+
+  // Register /datasets/{dataset}/files/{file} endpoint
+  server_->GetServer().Get(
+      R"(/datasets/([^/]+)/files/(.+))",
+      [this](const httplib::Request& req, httplib::Response& res) {
+        std::string dataset = req.matches[1];
+        std::string file = req.matches[2];
+
+        FileResponse response = HandleFileRequest(dataset, file);
+        
+        if (!response.success) {
+          res.set_content("{\"error\": \"" + response.error + "\"}", "application/json");
+          res.status = 404;
+        } else {
+          std::string content_type = GetContentType(file);
+          res.set_content(
+              std::string(response.data.begin(), response.data.end()),
+              content_type.c_str()
+          );
+          res.status = 200;
+        }
+      }
+  );
 }
 
 HttpGateway::~HttpGateway() {
@@ -58,33 +90,51 @@ void HttpGateway::Stop() {
   }
 }
 
-std::string HttpGateway::HandleFileRequest(const std::string& dataset, 
-                                          const std::string& file) {
+FileResponse HttpGateway::HandleFileRequest(const std::string& dataset, 
+                                           const std::string& file) {
+  FileResponse response{false, {}, 0, ""};
+
   auto it = datasets_.find(dataset);
   if (it == datasets_.end()) {
-    return "{\"error\": \"Dataset not found\"}";
+    response.error = "Dataset not found";
+    return response;
   }
 
   auto* entry = it->second.index->GetFile(file);
   if (!entry) {
-    return "{\"error\": \"File not found\"}";
+    response.error = "File not found";
+    return response;
   }
 
   retrieval::SelectiveRetriever retriever(it->second.index);
   auto [data, metrics] = retriever.RetrieveFile(file);
 
-  return "{\"success\": true, \"size\": " + std::to_string(metrics.bytes_transferred) 
-         + ", \"latency_ms\": " + std::to_string(metrics.latency_ms) + "}";
-}
-
-std::string HttpGateway::HandleBatchRequest(const std::string& dataset,
-                                           const std::string& body) {
-  auto it = datasets_.find(dataset);
-  if (it == datasets_.end()) {
-    return "{\"error\": \"Dataset not found\"}";
+  if (!metrics.success) {
+    response.error = "Retrieval failed";
+    return response;
   }
 
-  return "{\"success\": true}";
+  response.success = true;
+  response.data = data;
+  response.latency_ms = metrics.latency_ms;
+
+  return response;
+}
+
+std::string HttpGateway::GetContentType(const std::string& filename) const {
+  // Simple MIME type detection based on extension
+  if (filename.size() > 4) {
+    std::string ext = filename.substr(filename.size() - 4);
+    // Convert to lowercase
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    
+    if (ext == ".pdf") return "application/pdf";
+    if (ext == ".txt") return "text/plain";
+    if (ext == ".csv") return "text/csv";
+    if (ext == ".json") return "application/json";
+  }
+  
+  return "application/octet-stream";
 }
 
 }  // namespace gateway

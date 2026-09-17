@@ -3,6 +3,8 @@
 #include <memory>
 #include <string>
 #include <map>
+#include <vector>
+#include <cstdint>
 #include "index/index.h"
 #include "retrieval/retriever.h"
 
@@ -13,6 +15,13 @@ struct DatasetConfig {
   std::string name;
   std::string archive_dir;
   std::shared_ptr<index::Index> index;
+};
+
+struct FileResponse {
+  bool success;
+  std::vector<uint8_t> data;
+  double latency_ms;
+  std::string error;
 };
 
 class HttpGateway {
@@ -39,8 +48,8 @@ class HttpGateway {
   std::unique_ptr<class HttpServer> server_;
 
   // Internal request handlers
-  std::string HandleFileRequest(const std::string& dataset, const std::string& file);
-  std::string HandleBatchRequest(const std::string& dataset, const std::string& body);
+  FileResponse HandleFileRequest(const std::string& dataset, const std::string& file);
+  std::string GetContentType(const std::string& filename) const;
 };
 
 }  // namespace gateway

@@ -7,6 +7,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Dependencies
 find_package(CURL QUIET)
 
+include(FetchContent)
+
+FetchContent_Declare(
+    httplib
+    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+    GIT_TAG master
+)
+
+FetchContent_MakeAvailable(httplib)
+
 # Use nlohmann/json header-only (will be created locally)
 if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/include/nlohmann/json.hpp)
   message(STATUS "Downloading nlohmann/json...")
@@ -28,7 +38,7 @@ add_library(archive_reader src/archive/tar_reader.cpp)
 target_include_directories(archive_reader PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Phase 2: Index
-add_library(openshard_index src/index/index.cpp)
+add_library(openshard_index src/index/index.cpp src/index/index_builder.cpp)
 target_include_directories(openshard_index PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Phase 3: Retrieval Engine
@@ -49,7 +59,7 @@ endif()
 # Phase 4: Gateway
 add_library(openshard_gateway src/gateway/gateway.cpp)
 target_include_directories(openshard_gateway PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(openshard_gateway PUBLIC retrieval_engine)
+target_link_libraries(openshard_gateway PUBLIC retrieval_engine httplib::httplib)
 
 # Phase 5: Batch Retrieval
 add_library(batch_retriever src/retrieval/batch_retriever.cpp)
@@ -80,6 +90,11 @@ target_link_libraries(benchmark_evaluator PUBLIC retrieval_engine openshard_inde
 # target_link_libraries(archive_abstraction PUBLIC archive_reader)
 
 # Tests
+add_executable(test_index_builder tests/test_index_builder.cpp)
+target_link_libraries(test_index_builder PRIVATE openshard_index)
+target_include_directories(test_index_builder PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_test(NAME IndexBuilderTest COMMAND test_index_builder)
+
 add_executable(test_phase123 tests/test_phase123.cpp)
 target_link_libraries(test_phase123 PRIVATE archive_reader openshard_index retrieval_engine)
 target_include_directories(test_phase123 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -91,3 +106,13 @@ target_link_libraries(test_phases_advanced PRIVATE
   benchmark_evaluator openshard_gateway)
 target_include_directories(test_phases_advanced PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_test(NAME PhasesAdvancedTest COMMAND test_phases_advanced)
+
+# OpenShard Server executable
+add_executable(openshard_server src/gateway/server.cpp)
+target_link_libraries(openshard_server PRIVATE openshard_gateway)
+target_include_directories(openshard_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# OpenShard Indexer tool
+add_executable(openshard_indexer src/tools/indexer.cpp)
+target_link_libraries(openshard_indexer PRIVATE openshard_index)
+target_include_directories(openshard_indexer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
